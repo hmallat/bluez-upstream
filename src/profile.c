@@ -65,6 +65,7 @@
 #define PBAP_DEFAULT_CHANNEL	15
 #define MAS_DEFAULT_CHANNEL	16
 #define MNS_DEFAULT_CHANNEL	17
+#define CAS_DEFAULT_CHANNEL	18
 
 #define BTD_PROFILE_PSM_AUTO	-1
 #define BTD_PROFILE_CHAN_AUTO	-1
@@ -532,6 +533,55 @@
 		</attribute>						\
 		<attribute id=\"0x0317\">				\
 			<uint32 value=\"0x0000007f\"/>			\
+		</attribute>						\
+		<attribute id=\"0x0200\">				\
+			<uint16 value=\"%u\" name=\"psm\"/>		\
+		</attribute>						\
+	</record>"
+
+#define CAS_RECORD							\
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
+	<record>							\
+		<attribute id=\"0x0001\">				\
+			<sequence>					\
+				<uuid value=\"0x113c\"/>		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0004\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x0100\"/>	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0003\"/>	\
+					<uint8 value=\"0x%02x\"/>	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0008\"/>	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0009\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x113e\"/>	\
+					<uint16 value=\"0x%04x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0100\">				\
+			<text value=\"%s\"/>				\
+		</attribute>						\
+		<attribute id=\"0x0315\">				\
+			<uint8 value=\"0x00\"/>				\
+		</attribute>						\
+		<attribute id=\"0x0317\">				\
+			<uint32 value=\"0x0000001f\"/>			\
 		</attribute>						\
 		<attribute id=\"0x0200\">				\
 			<uint16 value=\"%u\" name=\"psm\"/>		\
@@ -1837,6 +1887,20 @@ static char *get_mns_record(struct ext_profile *ext, struct ext_io *l2cap,
 	return g_strdup_printf(MNS_RECORD, chan, ext->version, ext->name, psm);
 }
 
+static char *get_cas_record(struct ext_profile *ext, struct ext_io *l2cap,
+							struct ext_io *rfcomm)
+{
+	uint16_t psm = 0;
+	uint8_t chan = 0;
+
+	if (l2cap)
+		psm = l2cap->psm;
+	if (rfcomm)
+		chan = rfcomm->chan;
+
+	return g_strdup_printf(CAS_RECORD, chan, ext->version, ext->name, psm);
+}
+
 static char *get_sync_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
@@ -2051,6 +2115,15 @@ static struct default_settings {
 		.authorize	= true,
 		.get_record	= get_mns_record,
 		.version	= 0x0102
+	}, {
+		.uuid		= OBEX_CAS_UUID,
+		.name		= "CTN Access",
+		.channel	= CAS_DEFAULT_CHANNEL,
+		.psm		= BTD_PROFILE_PSM_AUTO,
+		.mode		= BT_IO_MODE_ERTM,
+		.authorize	= true,
+		.get_record	= get_cas_record,
+		.version	= 0x0100
 	},
 };
 
@@ -2231,6 +2304,9 @@ static void set_service(struct ext_profile *ext)
 			strcasecmp(ext->uuid, OBEX_MNS_UUID) == 0) {
 		ext->service = ext->uuid;
 		ext->uuid = strdup(OBEX_MAP_UUID);
+	} else if (strcasecmp(ext->uuid, OBEX_CAS_UUID) == 0) {
+		ext->service = ext->uuid;
+		ext->uuid = strdup(OBEX_CTN_UUID);
 	}
 }
 
