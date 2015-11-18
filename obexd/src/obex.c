@@ -511,7 +511,11 @@ static int driver_get_headers(struct obex_session *os)
 			return len;
 		}
 
-		hdr = g_obex_header_new_bytes(id, data, len);
+		if ((id & 0xc0) == 0)
+			hdr = g_obex_header_new_unicode(id, data);
+		else
+			hdr = g_obex_header_new_bytes(id, data, len);
+
 		g_obex_packet_add_header(rsp, hdr);
 	}
 
