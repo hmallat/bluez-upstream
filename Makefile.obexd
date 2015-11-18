@@ -52,6 +52,12 @@ obexd_builtin_modules += mns
 obexd_builtin_sources += obexd/client/mns.c obexd/src/map_ap.h \
 				obexd/client/map-event.h
 
+obexd_builtin_modules += cas
+obexd_builtin_sources += obexd/plugins/cas.c obexd/plugins/cnc.c \
+				obexd/plugins/ctn.h obexd/plugins/cnc.h \
+				obexd/plugins/cas-backend.h \
+				obexd/plugins/cas-backend-dummy.c
+
 libexec_PROGRAMS += obexd/src/obexd
 
 obexd_src_obexd_SOURCES = $(btio_sources) $(gobex_sources) \
@@ -81,11 +87,11 @@ obexd_src_obexd_SOURCES = $(btio_sources) $(gobex_sources) \
 			obexd/src/map_ap.h
 obexd_src_obexd_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
-			@ICAL_LIBS@ @DBUS_LIBS@ @GLIB_LIBS@ -ldl
+			@ICAL_LIBS@ @DBUS_LIBS@ @GLIB_LIBS@ @GIO_LIBS@ -ldl
 
 obexd_src_obexd_LDFLAGS = -Wl,--export-dynamic
 
-obexd_src_obexd_CFLAGS = $(AM_CFLAGS) @GLIB_CFLAGS@ @DBUS_CFLAGS@ \
+obexd_src_obexd_CFLAGS = $(AM_CFLAGS) @GLIB_CFLAGS@ @GIO_CFLAGS@ @DBUS_CFLAGS@ \
 				@ICAL_CFLAGS@ -DOBEX_PLUGIN_BUILTIN \
 				-DPLUGINDIR=\""$(obex_plugindir)"\" \
 				-fPIC -D_FILE_OFFSET_BITS=64
