@@ -352,6 +352,8 @@ static const char *service2uuid(uint16_t service)
 		return OBEX_MAS_UUID;
 	case OBEX_MNS:
 		return OBEX_MNS_UUID;
+	case OBEX_CAS:
+		return OBEX_CAS_UUID;
 	}
 
 	return NULL;

@@ -30,6 +30,7 @@
 #define OBEX_SYNCEVOLUTION	(1 << 7)
 #define OBEX_MAS	(1 << 8)
 #define OBEX_MNS	(1 << 9)
+#define OBEX_CAS	(1 << 10)
 
 gboolean plugin_init(const char *pattern, const char *exclude);
 void plugin_cleanup(void);
