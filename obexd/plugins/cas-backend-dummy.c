@@ -89,7 +89,7 @@
 #include "obexd/src/log.h"
 
 #include "ctn.h"
-#include "ctn-backend.h"
+#include "cas-backend.h"
 
 /* Work around PTS issues */
 #define PTS_WORKAROUND
