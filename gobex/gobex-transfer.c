@@ -167,6 +167,7 @@ static gboolean handle_get_body(struct transfer *transfer, GObexPacket *rsp,
 								GError **err)
 {
 	GObexHeader *body = g_obex_packet_get_body(rsp);
+	gboolean final;
 	gboolean ret;
 	const guint8 *buf;
 	gsize len;
@@ -174,11 +175,13 @@ static gboolean handle_get_body(struct transfer *transfer, GObexPacket *rsp,
 	if (body == NULL)
 		return TRUE;
 
+	g_obex_packet_get_operation(rsp, &final);
+
 	g_obex_header_get_bytes(body, &buf, &len);
 	if (len == 0)
 		return TRUE;
 
-	ret = transfer->data_consumer(buf, len, transfer->user_data);
+	ret = transfer->data_consumer(buf, len, final, transfer->user_data);
 	if (ret == FALSE)
 		g_set_error(err, G_OBEX_ERROR, G_OBEX_ERROR_CANCELLED,
 				"Data consumer callback failed");
@@ -353,7 +356,7 @@ static guint8 put_get_bytes(struct transfer *transfer, GObexPacket *req)
 	if (len == 0)
 		return rsp;
 
-	if (transfer->data_consumer(buf, len, transfer->user_data) == FALSE)
+	if (transfer->data_consumer(buf, len, final, transfer->user_data) == FALSE)
 		rsp = G_OBEX_RSP_FORBIDDEN;
 
 	return rsp;

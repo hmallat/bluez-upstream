@@ -97,7 +97,8 @@ static void transfer_complete(GObex *obex, GError *err, gpointer user_data)
 	g_free(data);
 }
 
-static gboolean recv_data(const void *buf, gsize len, gpointer user_data)
+static gboolean recv_data(const void *buf, gsize len, gboolean final,
+							gpointer user_data)
 {
 	struct transfer_data *data = user_data;
 

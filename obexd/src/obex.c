@@ -562,13 +562,14 @@ done:
 	return FALSE;
 }
 
-static gboolean recv_data(const void *buf, gsize size, gpointer user_data)
+static gboolean recv_data(const void *buf, gsize size, gboolean final,
+							gpointer user_data)
 {
 	struct obex_session *os = user_data;
 	ssize_t ret;
 
-	DBG("name=%s type=%s file=%p size=%zu", os->name, os->type, os->object,
-									size);
+	DBG("name=%s type=%s file=%p size=%zu final=%s", os->name, os->type,
+					os->object, size, final ? "yes" : "no");
 
 	if (os->aborted)
 		return FALSE;

@@ -636,7 +636,7 @@ void obc_transfer_unregister(struct obc_transfer *transfer)
 	obc_transfer_free(transfer);
 }
 
-static gboolean get_xfer_progress(const void *buf, gsize len,
+static gboolean get_xfer_progress(const void *buf, gsize len, gboolean final,
 							gpointer user_data)
 {
 	struct obc_transfer *transfer = user_data;
@@ -726,7 +726,7 @@ static void get_xfer_progress_first(GObex *obex, GError *err, GObexPacket *rsp,
 	if (hdr) {
 		g_obex_header_get_bytes(hdr, &buf, &len);
 		if (len != 0)
-			get_xfer_progress(buf, len, transfer);
+			get_xfer_progress(buf, len, final, transfer);
 	}
 
 	if (rspcode == G_OBEX_RSP_SUCCESS) {
