@@ -175,9 +175,6 @@ struct put_params {
 	gboolean send;
 	int tmpfd;
 	gchar *tmpname;
-	void (*cas_put_cb)(int err, void *user_data);
-	void *user_data;
-	guint source;
 };
 
 struct session_data {
@@ -239,9 +236,6 @@ static void get_params_free(struct get_params *params)
 
 static void put_params_free(struct put_params *params)
 {
-	if (params->source)
-		g_source_remove(params->source);
-
 	if (params->tmpfd)
 		close(params->tmpfd);
 
@@ -901,9 +895,9 @@ done:
 	return ret;
 }
 
-static int cas_backend_put_commit(gpointer user_data)
+int cas_backend_put_finalize(void *backend_data)
 {
-	struct session_data *session = user_data;
+	struct session_data *session = backend_data;
 	enum ctn_calendar_type cal_type;
 	gchar htmp[CTN_HANDLE_STR_LEN + 1];
 	gchar utmp[CTN_TSTAMP_STR_LEN + 1];
@@ -919,10 +913,8 @@ static int cas_backend_put_commit(gpointer user_data)
 	struct utimbuf times;
 	gchar *icaldata = NULL;
 
-	if (!session->put_params) { /* Aborted due to storage change */
-		ret = -EIO;
-		goto done;
-	}
+	if (!session->put_params) /* Aborted due to storage change */
+		return -EIO;
 
 	DBG("'%s'", session->put_params->tmpname);
 
@@ -939,17 +931,6 @@ static int cas_backend_put_commit(gpointer user_data)
 
 	ptr = bcal_contents;
 
-	/* Spec declares that bCalendar objects must always have a
-	   handle (see BNF for bCalendar); however, PTS sends objects
-	   without one. As we allocate one anyway it's not hugely
-	   important.
-
-	   Also, spec declares that timestamps must always be in a
-	   given fixed format where timezone is represented by a
-	   numeric offset; PTS sends objects with timezone names. Work
-	   around that too, but don't bother to do name-offset
-	   conversion. */
-
 	if (sscanf(ptr, BCALENDAR_PREFIX, htmp, utmp) == 2) {
 		skip = 43 + strlen(htmp) + strlen(utmp);
 		if (!ctn_str2tstamp(utmp, &update)) {
@@ -957,7 +938,20 @@ static int cas_backend_put_commit(gpointer user_data)
 			ret = -EBADR;
 			goto done;
 		}
+#ifdef PTS_WORKAROUND
 	} else if (sscanf(ptr, BCALENDAR_PREFIX_PTS, utmp) == 1) {
+
+		/* Spec declares that bCalendar objects must always
+		   have a handle (see BNF for bCalendar); however, PTS
+		   sends objects without one. As we allocate one
+		   anyway it's not hugely important.
+
+		   Also, spec declares that timestamps must always be
+		   in a given fixed format where timezone is
+		   represented by a numeric offset; PTS sends objects
+		   with timezone names. Work around that too, but
+		   don't bother to do name-offset conversion. */
+
 		skip = 43 + strlen(utmp);
 		memcpy(utmp + 15, "-08:00\0", 7);
 		if (!ctn_str2tstamp(utmp, &update)) {
@@ -965,6 +959,7 @@ static int cas_backend_put_commit(gpointer user_data)
 			ret = -EBADR;
 			goto done;
 		}
+#endif
 	} else {
 		DBG("Invalid BCALENDAR prefix");
 		ret = -EBADR;
@@ -1018,7 +1013,6 @@ static int cas_backend_put_commit(gpointer user_data)
 	DBG("Added '%s'", session->put_params->handle);
 
 done:
-	(session->put_params->cas_put_cb)(ret, session->put_params->user_data);
 	g_free(icaldata);
 	g_free(path);
 	if (obj)
@@ -1026,24 +1020,8 @@ done:
 	g_free(bcal_contents);
 	put_params_free(session->put_params);
 	session->put_params = NULL;
+
 	return ret;
-}
-
-int cas_backend_put_finalize(void *backend_data,
-				void (*cas_put_cb)(int err, void *user_data),
-				void *user_data)
-{
-	struct session_data *session = backend_data;
-	int err;
-
-	if (!session->put_params) /* Aborted due to storage change */
-		return -EIO;
-
-	session->put_params->cas_put_cb = cas_put_cb;
-	session->put_params->user_data = user_data;
-	g_idle_add(cas_backend_put_commit, session);
-
-	return 0;
 }
 
 int cas_backend_set_status(void *backend_data, const gchar *handle,

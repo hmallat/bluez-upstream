@@ -142,13 +142,6 @@ static gboolean trigger_read(gpointer user_data)
 	return FALSE;
 }
 
-static gboolean trigger_write(gpointer user_data)
-{
-	struct access_session *as = user_data;
-	obex_object_set_io_flags(as, G_IO_OUT, 0);
-	return FALSE;
-}
-
 static ssize_t null_write(void *object, const void *buf, size_t count)
 {
 	return count;
@@ -484,8 +477,9 @@ static ssize_t cas_object_write(void *object, const void *buf, size_t count)
 	DBG("buf %p count %zu", buf, count);
 
 	if (as->op == CAS_OP_PUT_OBJECT) {
-		int err = cas_backend_put_continue(as->backend_data, buf,
-									count);
+		int err;
+
+		err = cas_backend_put_continue(as->backend_data, buf, count);
 		if (err < 0) {
 			DBG("Error in storing object");
 			obex_object_set_io_flags(as, G_IO_ERR, err);
@@ -493,42 +487,22 @@ static ssize_t cas_object_write(void *object, const void *buf, size_t count)
 			return err;
 		}
 
+		if (!as->os->final)
+			return count;
+
+		err = cas_backend_put_finalize(as->backend_data);
+		if (err < 0) {
+			DBG("Error in committing object");
+			obex_object_set_io_flags(as, G_IO_ERR, err);
+			as->finished = TRUE;
+			return err;
+		}
+
+		as->finished = TRUE;
 		return count;
 	}
 
 	return -EOPNOTSUPP;
-}
-
-static void cas_object_done(int err, void *user_data)
-{
-	struct access_session *as = user_data;
-
-	DBG("");
-
-	as->finished = TRUE;
-
-	if (err) {
-		DBG("Error in committing object");
-		obex_object_set_io_flags(as, G_IO_ERR, err);
-	} else {
-		DBG("Object committed to storage");
-		trigger_read(as);
-	}
-}
-
-static int cas_object_flush(void *object)
-{
-	struct access_session *as = object;
-
-	DBG("");
-
-	if (as->op == CAS_OP_PUT_OBJECT) {
-		int err = cas_backend_put_finalize(as->backend_data,
-							cas_object_done, as);
-		return err < 0 ? err : -EAGAIN;
-	}
-
-	return 0;
 }
 
 static ssize_t cas_object_get_next_header(void *object, void *buf, size_t mtu,
@@ -550,25 +524,10 @@ static ssize_t cas_object_get_next_header(void *object, void *buf, size_t mtu,
 		*hi = G_OBEX_HDR_NAME;
 		memcpy(buf, as->outname, CTN_HANDLE_STR_LEN + 1);
 
-		/* Unblock writing after name is set */
-		g_idle_add(trigger_write, as);
 		return 1;
-
-	} else if (as->op == CAS_OP_GET_OBJECT) {
-		if (!as->buffer || (as->buffer->len == 0 && !as->finished))
-			return -EAGAIN;
-
-		if (as->outparams_sent)
-			return 0;
-
-		as->outparams_sent = TRUE;
-		*hi = G_OBEX_HDR_APPARAM;
-		return as->outparams
-			? g_obex_apparam_encode(as->outparams, buf, mtu)
-			: 0;
 	}
 
-	return 0;
+	return generic_get_next_header(object, buf, mtu, hi);
 }
 
 static struct obex_mime_type_driver cas_object_mime = {
@@ -580,7 +539,6 @@ static struct obex_mime_type_driver cas_object_mime = {
 	.close = generic_close,
 	.read = generic_read,
 	.write = cas_object_write,
-	.flush = cas_object_flush,
 };
 
 /* SetCTNStatus */

@@ -167,12 +167,9 @@ int cas_backend_put_continue(void *backend_data, const gchar *buf, gsize count);
  * All data for the object has been received, and backend needs to
  * finalize storing the object.
  *
- * Returns an error code if an error is immediately detected; otherwise,
- * returns zero and calls the given callback when storing is complete.
+ * Returns zero on success, an error code otherwise.
  */
-int cas_backend_put_finalize(void *backend_data,
-				void (*cas_put_cb)(int err, void *user_data),
-				void *user_data);
+int cas_backend_put_finalize(void *backend_data);
 
 /**
  * Set object status
