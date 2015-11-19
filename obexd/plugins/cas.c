@@ -73,8 +73,6 @@ struct access_session {
 	ctn_param_t param_mask;
 
 	GObexApparam *outparams;
-	gchar outname[CTN_HANDLE_STR_LEN + 1];
-	gboolean outname_sent;
 	gboolean outparams_sent;
 	GString *buffer;
 
@@ -125,9 +123,6 @@ static void access_session_reset(struct access_session *as)
 	}
 
 	as->outparams_sent = FALSE;
-
-	memset(as->outname, 0, sizeof(as->outname));
-	as->outname_sent = FALSE;
 
 	if (as->buffer) {
 		g_string_free(as->buffer, TRUE);
@@ -454,6 +449,7 @@ static void *cas_object_open(const char *name, int oflag, mode_t mode,
 					attachid, cas_get_cb, as);
 
 	} else {
+		gchar outname[CTN_HANDLE_STR_LEN + 1];
 		uint8_t send = 0;
 
 		if (as->inparams) {
@@ -463,8 +459,11 @@ static void *cas_object_open(const char *name, int oflag, mode_t mode,
 		}
 
 		as->op = CAS_OP_PUT_OBJECT;
-		*err = cas_backend_put(as->backend_data, name, send,
-					as->outname);
+		*err = cas_backend_put(as->backend_data, name, send, outname);
+		if (!*err) {
+			g_free(as->os->rspname);
+			as->os->rspname = g_strdup(outname);
+		}
         }
 
 	return (*err) ? NULL : as;
@@ -505,36 +504,11 @@ static ssize_t cas_object_write(void *object, const void *buf, size_t count)
 	return -EOPNOTSUPP;
 }
 
-static ssize_t cas_object_get_next_header(void *object, void *buf, size_t mtu,
-								uint8_t *hi)
-{
-	struct access_session *as = object;
-
-	DBG("");
-
-	if (as->op == CAS_OP_PUT_OBJECT) {
-		/* TODO: rework to use existing gobex functions */
-		gunichar2 utf16[CTN_HANDLE_STR_LEN + 1];
-		int i;
-
-		if (as->outname_sent)
-			return 0;
-
-		as->outname_sent = TRUE;
-		*hi = G_OBEX_HDR_NAME;
-		memcpy(buf, as->outname, CTN_HANDLE_STR_LEN + 1);
-
-		return 1;
-	}
-
-	return generic_get_next_header(object, buf, mtu, hi);
-}
-
 static struct obex_mime_type_driver cas_object_mime = {
 	.target = CAS_TARGET,
 	.target_size = TARGET_SIZE,
 	.mimetype = "x-bt/Calendar",
-	.get_next_header = cas_object_get_next_header,
+	.get_next_header = generic_get_next_header,
 	.open = cas_object_open,
 	.close = generic_close,
 	.read = generic_read,

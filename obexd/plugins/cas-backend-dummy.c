@@ -203,6 +203,30 @@ GHashTable *data_cache = NULL;
 /* Monitor for storage changes */
 GFileMonitor *storage_monitor = NULL;
 
+static void next_uuid(struct ctn_handle *ptr)
+{
+	gchar buf[CTN_HANDLE_STR_LEN + 1];
+	static GRand *rand = NULL;
+	struct ctn_handle handle;
+
+	if (!rand)
+		rand = g_rand_new();
+
+	do {
+		int i;
+
+		for (i = 0; i < 4; i++) {
+			guint32 u = g_rand_int(rand);
+			memcpy(&handle.data[i*4], &u, 4);
+		}
+
+		ctn_handle2str(&handle, buf);
+
+	} while (g_hash_table_lookup(data_cache, buf));
+
+	memcpy(ptr, &handle, sizeof(struct ctn_handle));
+}
+
 static int path2type(const gchar *path, enum ctn_calendar_type *ret)
 {
 	int err = 0;
@@ -369,9 +393,27 @@ static void cache_remove(const gchar *handle)
 	g_hash_table_remove(data_cache, handle);
 }
 
-static void cache_add(const gchar *handle)
+static void cache_add(const gchar *handle, enum ctn_calendar_type cal_type,
+		time_t update, time_t dtstart, time_t dtend, gsize size)
 {
 	struct data_cache_entry *d;
+
+	DBG("adding file '%s' (%s) to cache", handle,
+		ctn_calendar_type2str(cal_type));
+
+	d = g_new0(struct data_cache_entry, 1);
+	d->update = update;
+	d->handle = g_strdup(handle);
+	d->dtstart = dtstart;
+	d->dtend = dtend;
+	d->size = size + BCALENDAR_ENVELOPE_LEN + CTN_HANDLE_STR_LEN +
+		CTN_TSTAMP_STR_LEN;
+	d->cal_type = cal_type;
+	g_hash_table_replace(data_cache, g_strdup(handle), d);
+}
+
+static void cache_fill_handle(const gchar *handle)
+{
 	enum ctn_calendar_type cal_type;
 	time_t dtstart = 0, dtend = 0;
 	gchar *contents = NULL;
@@ -394,18 +436,7 @@ static void cache_add(const gchar *handle)
 		goto done;
 	}
 
-	DBG("adding file '%s' (%s) to cache", handle,
-		ctn_calendar_type2str(cal_type));
-
-	d = g_new0(struct data_cache_entry, 1);
-	d->update = st.st_mtime;
-	d->handle = g_strdup(handle);
-	d->dtstart = dtstart;
-	d->dtend = dtend;
-	d->size = st.st_size + BCALENDAR_ENVELOPE_LEN + CTN_HANDLE_STR_LEN +
-		CTN_TSTAMP_STR_LEN;
-	d->cal_type = cal_type;
-	g_hash_table_replace(data_cache, g_strdup(handle), d);
+	cache_add(handle, cal_type, st.st_mtime, dtstart, dtend, st.st_size);
 
 done:
 	if (obj)
@@ -434,7 +465,7 @@ static void cache_fill(void)
 		if (!ctn_valid_handle(next))
 			continue;
 
-		cache_add(next);
+		cache_fill_handle(next);
 	}
 
 done:
@@ -494,7 +525,7 @@ static void monitor_event(GFileMonitor *monitor,
 	case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
 		DBG("'%s' changes done, (re)inserting into cache. ", name);
 		cache_remove(name);
-		cache_add(name);
+		cache_fill_handle(name);
 		break;
 
 	case G_FILE_MONITOR_EVENT_DELETED:
@@ -826,6 +857,7 @@ int cas_backend_put(void *backend_data, const gchar *folder, gboolean send,
 	enum ctn_calendar_type cal_type;
 	int tmpfd = -1;
 	gchar *tmpname = NULL;
+	struct ctn_handle handle;
 	int err;
 
 	DBG("'%s'", folder);
@@ -840,9 +872,10 @@ int cas_backend_put(void *backend_data, const gchar *folder, gboolean send,
 		return -EIO;
 	}
 
+	next_uuid(&handle);
+
 	params = g_new0(struct put_params, 1);
-	strncpy(params->handle, "0123456789ABCDEF0123456789ABCDEF",
-		CTN_HANDLE_STR_LEN + 1); /* TODO */
+	ctn_handle2str(&handle, params->handle);
 	params->cal_type = cal_type;
 	params->send = send;
 	params->tmpfd = tmpfd;
@@ -996,9 +1029,6 @@ int cas_backend_put_finalize(void *backend_data)
 	path = g_build_path("/", config.data_root, CAS_STORAGE,
 				session->put_params->handle, NULL);
 
-	/* Writing into storage will automatically trigger cache
-	   update and event reporting, albeit at the expense of
-	   parsing the iCalendar object again */
 	if (!g_file_set_contents(path, ptr, length, NULL)) {
 		ret = -EIO;
 		goto done;
@@ -1008,9 +1038,13 @@ int cas_backend_put_finalize(void *backend_data)
 	times.modtime = update;
 	utime(path, &times);
 
-	ret = 0;
+	/* Writing into storage will automatically trigger cache
+	   update and event reporting, but it can take time.
+	   So force the entry into the cache here already. */
+	cache_add(session->put_params->handle, cal_type, update, dtstart,
+			dtend, length);
 
-	DBG("Added '%s'", session->put_params->handle);
+	ret = 0;
 
 done:
 	g_free(icaldata);
