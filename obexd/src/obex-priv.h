@@ -53,6 +53,7 @@ struct obex_session {
 	GObex *obex;
 	struct obex_mime_type_driver *driver;
 	gboolean headers_sent;
+	gboolean final;
 };
 
 int obex_session_start(GIOChannel *io, uint16_t tx_mtu, uint16_t rx_mtu,

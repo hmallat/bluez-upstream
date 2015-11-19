@@ -229,6 +229,7 @@ static void os_reset_session(struct obex_session *os)
 	os->size = OBJECT_SIZE_DELETE;
 	os->headers_sent = FALSE;
 	os->checked = FALSE;
+	os->final = FALSE;
 }
 
 static void obex_session_free(struct obex_session *os)
@@ -375,9 +376,11 @@ static void cmd_disconnect(GObex *obex, GObexPacket *req, void *user_data)
 	os_set_response(os, 0);
 }
 
-static ssize_t driver_write(struct obex_session *os)
+static ssize_t driver_write(struct obex_session *os, gboolean final)
 {
 	ssize_t len = 0;
+
+	os->final = final;
 
 	while (os->pending > 0) {
 		ssize_t w;
@@ -544,7 +547,7 @@ static gboolean handle_async_io(void *object, int flags, int err,
 		goto done;
 
 	if (flags & G_IO_OUT)
-		err = driver_write(os);
+		err = driver_write(os, os->final);
 	if ((flags & G_IO_IN) && !os->headers_sent)
 		err = driver_get_headers(os);
 
@@ -589,7 +592,7 @@ static gboolean recv_data(const void *buf, gsize size, gboolean final,
 		return TRUE;
 	}
 
-	ret = driver_write(os);
+	ret = driver_write(os, final);
 	if (ret >= 0)
 		return TRUE;
 
