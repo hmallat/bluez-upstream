@@ -43,9 +43,10 @@
  * speed up operations. The cache is kept up to date by monitoring
  * file system changes within the directory.
  *
- * To keep things reasonably simple, the backend will abort ongoing
- * requests on any change of the storage directory, even if it
- * wouldn't affect requests' objects.
+ * To keep things reasonably simple, backend suspends file system
+ * monitoring during processing of requests from CCEs. Thus changes
+ * in the storage during, e.g., listings can go unnoticed. Keep this
+ * in mind while testing.
  *
  * Configuration
  * -------------
@@ -195,13 +196,18 @@ static struct config config = {
 };
 
 /* Ongoing sessions */
-GSList *sessions = NULL;
+static GSList *sessions = NULL;
 
 /* Calendar object storage */
-GHashTable *data_cache = NULL;
+static GHashTable *data_cache = NULL;
 
 /* Monitor for storage changes */
-GFileMonitor *storage_monitor = NULL;
+static GFileMonitor *storage_monitor = NULL;
+static int storage_suspend = 1;
+
+static void monitor_resume(void);
+
+static void monitor_suspend(void);
 
 static void next_uuid(struct ctn_handle *ptr)
 {
@@ -269,6 +275,34 @@ static void put_params_free(struct put_params *params)
 	}
 
 	g_free(params);
+}
+
+static void request_begin(struct session_data *session,
+				enum request_type type, gpointer params)
+{
+	monitor_suspend();
+	session->type = type;
+	session->params = params;
+}
+
+static void request_free(struct session_data *session)
+{
+	if (session->params) {
+		switch (session->type) {
+		case REQUEST_LIST:
+			list_params_free(session->list_params);
+			break;
+		case REQUEST_GET:
+			get_params_free(session->get_params);
+			break;
+		case REQUEST_PUT:
+			put_params_free(session->put_params);
+			break;
+		}
+		session->params = NULL;
+	}
+
+	monitor_resume();
 }
 
 static void data_cache_entry_free(gpointer p)
@@ -549,30 +583,35 @@ done:
 	g_free(name);
 }
 
-static void monitor_init(void)
+static void monitor_resume(void)
 {
-	gchar *path = NULL;
-	GFile *storage = NULL;
+	storage_suspend--;
+	if (!storage_suspend) {
+		gchar *path = NULL;
+		GFile *storage = NULL;
 
-	path = g_build_path("/", config.data_root, CAS_STORAGE, NULL);
-	storage = g_file_new_for_path(path);
-	storage_monitor = g_file_monitor_directory(storage, 0, NULL, NULL);
-	if (storage_monitor)
-		g_signal_connect(storage_monitor, "changed",
-				G_CALLBACK(monitor_event), NULL);
-	else
-		info("Warning: cannot monitor storage changes");
+		path = g_build_path("/", config.data_root, CAS_STORAGE, NULL);
+		storage = g_file_new_for_path(path);
+		storage_monitor = g_file_monitor_directory(storage, 0, NULL,
+									NULL);
+		if (storage_monitor)
+			g_signal_connect(storage_monitor, "changed",
+					G_CALLBACK(monitor_event), NULL);
+		else
+			info("Warning: cannot monitor storage changes");
 
-	g_object_unref(storage);
-	g_free(path);
+		g_object_unref(storage);
+		g_free(path);
+	}
 }
 
-static void monitor_exit(void)
+static void monitor_suspend(void)
 {
 	if (storage_monitor) {
 		g_object_unref(storage_monitor);
 		storage_monitor = NULL;
 	}
+	storage_suspend++;
 }
 
 int cas_backend_init(void (*cb)(struct ctn_event *))
@@ -592,14 +631,14 @@ int cas_backend_init(void (*cb)(struct ctn_event *))
 
 	cache_fill();
 
-	monitor_init();
+	monitor_resume();
 
 	return 0;
 }
 
 void cas_backend_exit(void)
 {
-	monitor_exit();
+	monitor_suspend();
 	g_hash_table_unref(data_cache);
 	data_cache = NULL;
 	config.change_event_cb = NULL;
@@ -690,10 +729,8 @@ done:
 	(session->list_params->cas_list_cb)
 		(err, final, session->list_params->total, curr, ent,
 			session->list_params->user_data);
-	if (err || final) {
-		list_params_free(session->list_params);
-		session->list_params = NULL;
-	}
+	if (err || final)
+		request_free(session);
 
 	return err ? FALSE : !final;
 }
@@ -764,8 +801,7 @@ int cas_backend_list(void *backend_data, const gchar *name, uint16_t max_count,
 	params->user_data = user_data;
 	params->source = g_idle_add(cas_backend_list_generate, session);
 
-	session->type = REQUEST_LIST;
-	session->list_params = params;
+	request_begin(session, REQUEST_LIST, params);
 
 	return 0;
 }
@@ -801,8 +837,7 @@ done:
 
 	g_free(out);
 	g_free(contents);
-	get_params_free(session->get_params);
-	session->get_params = NULL;
+	request_free(session);
 
 	return FALSE;
 }
@@ -839,8 +874,7 @@ int cas_backend_get(void *backend_data, const gchar *name, gboolean recurrence,
 	params->user_data = user_data;
 	params->source = g_idle_add(cas_backend_get_generate, session);
 
-	session->type = REQUEST_GET;
-	session->get_params = params;
+	request_begin(session, REQUEST_GET, params);
 
 	return 0;
 }
@@ -881,10 +915,9 @@ int cas_backend_put(void *backend_data, const gchar *folder, gboolean send,
 	params->tmpfd = tmpfd;
 	params->tmpname = tmpname;
 
-	session->type = REQUEST_PUT;
-	session->put_params = params;
-
 	strncpy(handle_buf, params->handle, CTN_HANDLE_STR_LEN + 1);
+
+	request_begin(session, REQUEST_PUT, params);
 
 	return 0;
 }
@@ -920,10 +953,8 @@ int cas_backend_put_continue(void *backend_data, const gchar *buf, gsize count)
 	ret = count;
 
 done:
-	if (ret < 0) {
-		put_params_free(session->put_params);
-		session->put_params = NULL;
-	}
+	if (ret < 0)
+		request_free(session);
 
 	return ret;
 }
@@ -1052,8 +1083,7 @@ done:
 	if (obj)
 		icalcomponent_free(obj);
 	g_free(bcal_contents);
-	put_params_free(session->put_params);
-	session->put_params = NULL;
+	request_free(session);
 
 	return ret;
 }
@@ -1069,20 +1099,6 @@ int cas_backend_set_status(void *backend_data, const gchar *handle,
 
 void cas_backend_abort(void *backend_data)
 {
-	struct session_data *s = backend_data;
-
-	if (s->params) {
-		switch (s->type) {
-		case REQUEST_LIST:
-			list_params_free(s->list_params);
-			break;
-		case REQUEST_GET:
-			get_params_free(s->get_params);
-			break;
-		case REQUEST_PUT:
-			put_params_free(s->put_params);
-			break;
-		}
-		s->params = NULL;
-	}
+	struct session_data *session = backend_data;
+	request_free(session);
 }
