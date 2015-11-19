@@ -230,6 +230,11 @@ static void os_reset_session(struct obex_session *os)
 	os->headers_sent = FALSE;
 	os->checked = FALSE;
 	os->final = FALSE;
+
+	if (os->rspname) {
+		g_free(os->rspname);
+		os->rspname = NULL;
+	}
 }
 
 static void obex_session_free(struct obex_session *os)
@@ -514,10 +519,7 @@ static int driver_get_headers(struct obex_session *os)
 			return len;
 		}
 
-		if ((id & 0xc0) == 0)
-			hdr = g_obex_header_new_unicode(id, data);
-		else
-			hdr = g_obex_header_new_bytes(id, data, len);
+		hdr = g_obex_header_new_bytes(id, data, len);
 
 		g_obex_packet_add_header(rsp, hdr);
 	}
@@ -903,8 +905,13 @@ static void cmd_put(GObex *obex, GObexPacket *req, gpointer user_data)
 
 	err = os->service->put(os, os->service_data);
 	if (err == 0) {
-		g_obex_put_rsp(obex, req, recv_data, transfer_complete, os,
-						NULL, G_OBEX_HDR_INVALID);
+		if (os->rspname)
+			g_obex_put_rsp(obex, req, recv_data, transfer_complete,
+					os, NULL, G_OBEX_HDR_NAME, os->rspname,
+					G_OBEX_HDR_INVALID);
+		else
+			g_obex_put_rsp(obex, req, recv_data, transfer_complete,
+						os, NULL, G_OBEX_HDR_INVALID);
 		print_event(G_OBEX_OP_PUT, G_OBEX_RSP_CONTINUE);
 		return;
 	}
