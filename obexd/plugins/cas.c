@@ -617,6 +617,11 @@ static void *cas_set_status_open(const char *name, int oflag, mode_t mode,
 
 	case 0x03:
 		status = CTN_STATUS_DELETE;
+		if (value != 0x01) {
+			/* value has to be "yes" */
+			*err = -EBADR;
+			return NULL;
+		}
 		ptr = NULL;
 		break;
 

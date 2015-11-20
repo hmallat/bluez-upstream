@@ -209,6 +209,11 @@ static void monitor_resume(void);
 
 static void monitor_suspend(void);
 
+static gchar *storage_path(const gchar *handle)
+{
+	return g_build_path("/", config.data_root, CAS_STORAGE, handle, NULL);
+}
+
 static void next_uuid(struct ctn_handle *ptr)
 {
 	gchar buf[CTN_HANDLE_STR_LEN + 1];
@@ -334,9 +339,7 @@ static int read_object(const gchar *handle, gchar **contents, gsize *length,
 {
 	GError *err = NULL;
 	int ret = 0;
-	gchar *path = NULL;
-
-	path = g_build_path("/", config.data_root, CAS_STORAGE, handle, NULL);
+	gchar *path = storage_path(handle);
 
 	if (st && stat(path, st) < 0) {
 		ret = -EIO;
@@ -482,7 +485,7 @@ static void cache_fill(void)
 {
 	GDir *dir = NULL;
 	const gchar *next;
-	gchar *path = g_build_path("/", config.data_root, CAS_STORAGE, NULL);
+	gchar *path = storage_path(NULL);
 
 	data_cache = g_hash_table_new_full(g_str_hash, 
 						g_str_equal,
@@ -587,10 +590,9 @@ static void monitor_resume(void)
 {
 	storage_suspend--;
 	if (!storage_suspend) {
-		gchar *path = NULL;
+		gchar *path = storage_path(NULL);
 		GFile *storage = NULL;
 
-		path = g_build_path("/", config.data_root, CAS_STORAGE, NULL);
 		storage = g_file_new_for_path(path);
 		storage_monitor = g_file_monitor_directory(storage, 0, NULL,
 									NULL);
@@ -1057,8 +1059,7 @@ int cas_backend_put_finalize(void *backend_data)
 		goto done;
 	}
 
-	path = g_build_path("/", config.data_root, CAS_STORAGE,
-				session->put_params->handle, NULL);
+	path = storage_path(session->put_params->handle);
 
 	if (!g_file_set_contents(path, ptr, length, NULL)) {
 		ret = -EIO;
@@ -1088,11 +1089,39 @@ done:
 	return ret;
 }
 
-int cas_backend_set_status(void *backend_data, const gchar *handle,
+int cas_backend_set_status(void *backend_data, const gchar *name,
 				enum ctn_status type, void *value)
 {
-	/* TODO: just a null stub for now */
-	return -EOPNOTSUPP;
+	gchar handle[CTN_HANDLE_STR_LEN + 1];
+	struct data_cache_entry *d;
+	gchar *path = NULL;
+
+	DBG("'%s'", name);
+
+	if (!ctn_canonicalize_handle(name, handle))
+		return -EBADR;
+
+	d = g_hash_table_lookup(data_cache, handle);
+	if (!d)
+		return -ENOENT;
+
+	switch (type) {
+
+	case CTN_STATUS_PART:
+	case CTN_STATUS_ALARM:
+	case CTN_STATUS_SEND:
+		/* TODO: just a null stub for now */
+		return -EOPNOTSUPP;
+
+	case CTN_STATUS_DELETE:
+		cache_remove(handle);
+		path = storage_path(handle);
+		g_remove(path);
+		break;
+	}
+
+	g_free(path);
+	return 0;
 }
 
 void cas_backend_abort(void *backend_data)
