@@ -1089,9 +1089,7 @@ done:
 }
 
 int cas_backend_set_status(void *backend_data, const gchar *handle,
-				enum ctn_status type, void *value,
-				void (*ctn_set_status_cb)(int err, void *user_data),
-				void *user_data)
+				enum ctn_status type, void *value)
 {
 	/* TODO: just a null stub for now */
 	return -EOPNOTSUPP;

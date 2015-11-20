@@ -21,6 +21,17 @@
  *
  */
 
+/*
+ * TODO: Currently some functions (cas_backend_put_finalize,
+ * cas_backend_set_status) are expected to return a result code
+ * synchronously even if an asynchronous result callback would make
+ * more sense because of a potentially long-running operation. This is
+ * because currently it seems to be impossible to pend sending a
+ * response to a PUT request with the Final bit set (returning -EAGAIN
+ * from driver write does not prevent gobex-transfer from sending a
+ * Success response)
+ */
+
 /**
  * Initialize CAS backend
  *
@@ -175,8 +186,8 @@ int cas_backend_put_finalize(void *backend_data);
  * Set object status
  *
  * Will be called when CCE makes a status request for an object with
- * the given application parameters. Backend will need to call the
- * given callback function when status change operation is completed.
+ * the given application parameters. Returns zero on success, an error
+ * code otherwise.
  *
  * Status value to set depends on status type; for CTN_STATUS_PART it
  * is a pointer to an enum ctn_pstatus, for CTN_STATUS_SEND it is a
@@ -190,10 +201,7 @@ int cas_backend_put_finalize(void *backend_data);
  *
  */
 int cas_backend_set_status(void *backend_data, const gchar *handle,
-				enum ctn_status type, void *value,
-				void (*cas_set_status_cb)(int err,
-							void *user_data),
-				void *user_data);
+				enum ctn_status type, void *value);
  
 /**
  * Abort current request

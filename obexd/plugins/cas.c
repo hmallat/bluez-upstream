@@ -517,16 +517,6 @@ static struct obex_mime_type_driver cas_object_mime = {
 
 /* SetCTNStatus */
 
-static void cas_set_status_cb(int err, void *user_data)
-{
-	struct access_session *as = user_data;
-
-	if (err < 0)
-		obex_object_set_io_flags(as, G_IO_ERR, err);
-	else
-		trigger_read(as);
-}
-
 /* TODO: by spec the Body header should contain a single byte, 0x30;
    might check its presence for correctness instead of ignoring Body. */
 
@@ -633,8 +623,7 @@ static void *cas_set_status_open(const char *name, int oflag, mode_t mode,
 	}
 
 	as->op = CAS_OP_SET_STATUS;
-	*err = cas_backend_set_status(as->backend_data, name, status, ptr,
-					cas_set_status_cb, as);
+	*err = cas_backend_set_status(as->backend_data, name, status, ptr);
 
 	return (*err) ? NULL : as;
 }
